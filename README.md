@@ -81,20 +81,75 @@ Saved credentials live in flash and override the `config.h` defaults. To forget
 them: `curl -X POST http://relay.local/api/wifi/reset` (device reboots back into
 AP mode). You can also change WiFi anytime from the **WiFi** card in the WebUI.
 
-## OTA firmware updates
+## Building firmware for OTA updates
 
-Once on the network, you can update without USB. Two ways:
+When you make code changes and want to push them over the air, you need the
+compiled `.bin` file. You do **not** need USB after the initial flash.
 
-- **Browser:** open `http://relay.local/update`, choose the compiled
-  `firmware.bin` (from `.pio/build/esp32dev/`), and watch the progress bar. The
-  device reboots automatically.
-- **PlatformIO / espota:**
+### Prerequisites
+
+- [PlatformIO](https://platformio.org/install) installed (VS Code extension or CLI).
+- A clone of this repo on your development machine:
   ```bash
-  pio run -t upload --upload-port relay.local
+  git clone https://github.com/Troublesis/esp32-relay-control.git
+  cd esp32-relay-control
+  cp include/config.example.h include/config.h
+  # edit include/config.h with your settings (optional — the device already has them saved)
   ```
 
-Set `OTA_PASSWORD` in `config.h` to require a password (HTTP Basic auth, user
-`admin`, for the web page; passphrase for `espota`). Empty = no auth (LAN only).
+### Build the firmware binary
+
+```bash
+pio run
+```
+
+This compiles the firmware and produces:
+
+```
+.pio/build/esp32dev/firmware.bin
+```
+
+That file is what you upload to the device.
+
+### Upload via browser
+
+1. Open **`http://relay.local/update`** (or the device IP).
+2. Click **Choose file**, select `.pio/build/esp32dev/firmware.bin`.
+3. Click **Flash firmware** — you'll see a progress bar.
+4. The device reboots automatically when done.
+
+### Upload via curl
+
+```bash
+curl -F "firmware=@.pio/build/esp32dev/firmware.bin" http://relay.local/update
+```
+
+### Upload via PlatformIO (espota)
+
+If `OTA_PASSWORD` is set, pass it via `--upload-password`:
+
+```bash
+# No password
+pio run -t upload --upload-port relay.local
+
+# With password
+pio run -t upload --upload-port relay.local --upload-password YOUR_PASSWORD
+```
+
+### Version bump (optional)
+
+The firmware reports its version in `/api/status` and the OLED/WebUI footer.
+Update it in `include/config.h` before building:
+
+```c
+#define FW_VERSION "1.2.0"
+```
+
+### Security note
+
+Set `OTA_PASSWORD` in `config.h` to require authentication (HTTP Basic auth,
+user `admin`, for the browser/curl upload; passphrase for espota). Leave it
+empty for no auth (LAN-only use).
 
 ## Web interface
 
