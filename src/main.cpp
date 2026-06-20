@@ -435,9 +435,10 @@ bool connectWiFi() {
   Serial.printf("\n[wifi] connected. IP: %s\n", WiFi.localIP().toString().c_str());
 
   // Kick off NTP so the motion log can show real timestamps (non-blocking;
-  // the clock becomes valid a few seconds later in the background).
-  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
-  Serial.printf("[time] NTP sync requested (%s)\n", NTP_SERVER);
+  // the clock becomes valid a few seconds later in the background). TZ_INFO is a
+  // POSIX TZ string so DST is applied automatically per the local rules.
+  configTzTime(TZ_INFO, NTP_SERVER);
+  Serial.printf("[time] NTP sync requested (%s, TZ %s)\n", NTP_SERVER, TZ_INFO);
 
   if (MDNS.begin(DEVICE_HOSTNAME)) {
     MDNS.addService("http", "tcp", WEB_SERVER_PORT);

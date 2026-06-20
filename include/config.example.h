@@ -107,8 +107,13 @@
 // ----------------------------------------------------------------------------
 // NTP time — gives the motion log real timestamps (needs WiFi/internet)
 // ----------------------------------------------------------------------------
-// Without a sync the log falls back to showing the device uptime. Set the
-// offsets for your timezone, e.g. Vietnam (UTC+7): GMT_OFFSET_SEC = 25200.
-#define NTP_SERVER          "pool.ntp.org"
-#define GMT_OFFSET_SEC      0     // seconds offset from UTC (e.g. 25200 = UTC+7)
-#define DAYLIGHT_OFFSET_SEC 0     // extra DST offset in seconds (0 if unused)
+// Without a sync the log falls back to showing the device uptime. TZ_INFO is a
+// POSIX timezone string and handles daylight-saving transitions automatically.
+// Default is Australia/Sydney (AEST/AEDT). Examples for other zones:
+//   Vietnam (UTC+7, no DST): "ICT-7"
+//   UK:                      "GMT0BST,M3.5.0/1,M10.5.0"
+//   US Eastern:              "EST5EDT,M3.2.0,M11.1.0"
+//   UTC:                     "UTC0"
+// Look up yours: https://github.com/nayarsystems/posix_tz_db
+#define NTP_SERVER "pool.ntp.org"
+#define TZ_INFO    "AEST-10AEDT,M10.1.0,M4.1.0/3"   // Australia/Sydney

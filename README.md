@@ -54,10 +54,11 @@ is present and returns **LOW** after the sensor's own hold time.
 
 The firmware debounces edges and records each change into an in-RAM history log
 (up to `PIR_LOG_MAX`, default **999** events, oldest dropped). The WebUI shows the
-live state plus a scrollable, timestamped log. Timestamps come from **NTP** — set
-`GMT_OFFSET_SEC` for your timezone (e.g. `25200` for UTC+7); before the clock
-syncs, events fall back to showing the device uptime. Set `PIR_ENABLED 0` in
-`config.h` if no sensor is attached.
+live state plus a scrollable, timestamped log. Timestamps come from **NTP** — the
+timezone is set with `TZ_INFO` (a POSIX TZ string that applies daylight-saving
+automatically), defaulting to **Australia/Sydney** (`AEST-10AEDT,M10.1.0,M4.1.0/3`).
+Before the clock syncs, events fall back to showing the device uptime. Set
+`PIR_ENABLED 0` in `config.h` if no sensor is attached.
 
 ## Setup
 
