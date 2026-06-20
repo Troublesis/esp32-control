@@ -1,7 +1,14 @@
 #include "motion.h"
 #include "config.h"
 
+#include <string.h>
 #include <time.h>
+
+#if PIR_ENABLED && BARK_ENABLED
+#include <HTTPClient.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#endif
 
 // ============================================================================
 // PIR motion sensor implementation — see include/motion.h for the contract.
@@ -52,6 +59,94 @@ static String formatTs(time_t epoch) {
   return String(buf);
 }
 
+#if BARK_ENABLED
+static String jsonEscape(const char* value) {
+  String out;
+  out.reserve(strlen(value) + 8);
+  for (const char* p = value; *p; p++) {
+    switch (*p) {
+      case '"':  out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:   out += *p; break;
+    }
+  }
+  return out;
+}
+
+static void appendJsonString(String& json, const char* key, const char* value) {
+  if (value[0] == '\0') return;
+  json += ",\"";
+  json += key;
+  json += "\":\"";
+  json += jsonEscape(value);
+  json += "\"";
+}
+
+static String barkBody(const MotionEvent& ev) {
+  String body = BARK_BODY;
+  String ts = formatTs(ev.epoch);
+  if (ts.length() > 0) {
+    body += "\nTime: ";
+    body += ts;
+  }
+  body += "\nDevice: " DEVICE_HOSTNAME ".local";
+  return body;
+}
+
+static String barkPayload(const MotionEvent& ev) {
+  String json = "{\"device_key\":\"";
+  json += jsonEscape(BARK_DEVICE_KEY);
+  json += "\"";
+  appendJsonString(json, "title", BARK_TITLE);
+  String body = barkBody(ev);
+  appendJsonString(json, "body", body.c_str());
+  json += ",\"badge\":" + String(BARK_BADGE);
+  appendJsonString(json, "sound", BARK_SOUND);
+  appendJsonString(json, "icon", BARK_ICON);
+  appendJsonString(json, "group", BARK_GROUP);
+  appendJsonString(json, "url", BARK_OPEN_URL);
+  json += "}";
+  return json;
+}
+
+static void sendBarkMotionNotification(const MotionEvent& ev) {
+  if (BARK_PUSH_URL[0] == '\0' || BARK_DEVICE_KEY[0] == '\0') {
+    Serial.println("[bark] skipped: missing URL or device key");
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[bark] skipped: WiFi is not connected");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.setConnectTimeout(BARK_TIMEOUT_MS);
+  http.setTimeout(BARK_TIMEOUT_MS);
+  if (!http.begin(client, BARK_PUSH_URL)) {
+    Serial.println("[bark] failed to start HTTP request");
+    return;
+  }
+
+  http.addHeader("Content-Type", "application/json; charset=utf-8");
+  int code = http.POST(barkPayload(ev));
+  http.end();
+
+  if (code > 0 && code < 400) {
+    Serial.printf("[bark] notification sent (HTTP %d)\n", code);
+  } else {
+    Serial.printf("[bark] notification failed (HTTP %d)\n", code);
+  }
+}
+#else
+static void sendBarkMotionNotification(const MotionEvent&) {}
+#endif
+
 static void appendEvent(bool motion) {
   MotionEvent ev;
   ev.seq    = ++seqCounter;
@@ -63,7 +158,10 @@ static void appendEvent(bool motion) {
   logHead = (logHead + 1) % PIR_LOG_MAX;
   if (logCount < PIR_LOG_MAX) logCount++;
 
-  if (motion) motionCount++;
+  if (motion) {
+    motionCount++;
+    sendBarkMotionNotification(ev);
+  }
   Serial.printf("[pir] %s (seq %lu)\n", motion ? "motion detected" : "no motion", ev.seq);
 }
 

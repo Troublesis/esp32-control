@@ -105,6 +105,22 @@
 #define PIR_LOG_MAX 999
 
 // ----------------------------------------------------------------------------
+// Bark notification — sent once each time the PIR sensor detects motion
+// ----------------------------------------------------------------------------
+// Leave disabled until your local config.h contains your Bark server details.
+#define BARK_ENABLED     0
+#define BARK_PUSH_URL    "https://your-bark-server.example/push"
+#define BARK_DEVICE_KEY  "YOUR_BARK_DEVICE_KEY"
+#define BARK_TITLE       "Human Motion Detected"
+#define BARK_BODY        "The ESP32 human sensor detected movement near the relay controller."
+#define BARK_BADGE       1
+#define BARK_SOUND       "door-close"
+#define BARK_ICON        ""
+#define BARK_GROUP       "esp32"
+#define BARK_OPEN_URL    "http://relay.local/"
+#define BARK_TIMEOUT_MS  3000
+
+// ----------------------------------------------------------------------------
 // NTP time — gives the motion log real timestamps (needs WiFi/internet)
 // ----------------------------------------------------------------------------
 // Without a sync the log falls back to showing the device uptime. TZ_INFO is a
