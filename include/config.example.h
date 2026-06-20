@@ -42,7 +42,7 @@
 #define OTA_PASSWORD ""
 
 // Reported by /api/status and shown in the UI footer.
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.2.0"
 
 // ----------------------------------------------------------------------------
 // Relay wiring (see WIRING GUIDE in main.cpp)
@@ -87,3 +87,28 @@
 #define OLED_ADDR    0x3C   // try 0x3D if your module doesn't light up
 #define OLED_WIDTH   128
 #define OLED_HEIGHT  64
+
+// ----------------------------------------------------------------------------
+// PIR motion sensor — e.g. HS-S38P (3 pins: VCC / GND / S)
+// ----------------------------------------------------------------------------
+//   PIR VCC -> ESP32 3V3
+//   PIR GND -> ESP32 GND
+//   PIR S   -> ESP32 GPIO 4  (PIR_PIN — any input-capable GPIO)
+// The signal pin goes HIGH while motion is present and returns LOW after the
+// sensor's own hold time. The WebUI shows the live state plus a timestamped
+// history log. Set PIR_ENABLED to 0 if no sensor is attached.
+#define PIR_ENABLED 1
+#define PIR_PIN     4
+// How often the input is sampled, in ms (PIR output changes slowly).
+#define PIR_POLL_MS 50
+// Maximum number of history events kept in RAM (oldest is dropped past this).
+#define PIR_LOG_MAX 999
+
+// ----------------------------------------------------------------------------
+// NTP time — gives the motion log real timestamps (needs WiFi/internet)
+// ----------------------------------------------------------------------------
+// Without a sync the log falls back to showing the device uptime. Set the
+// offsets for your timezone, e.g. Vietnam (UTC+7): GMT_OFFSET_SEC = 25200.
+#define NTP_SERVER          "pool.ntp.org"
+#define GMT_OFFSET_SEC      0     // seconds offset from UTC (e.g. 25200 = UTC+7)
+#define DAYLIGHT_OFFSET_SEC 0     // extra DST offset in seconds (0 if unused)
