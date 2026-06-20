@@ -89,8 +89,11 @@
 //   OLED SCL -> ESP32 GPIO 22
 //   OLED SDA -> ESP32 GPIO 21
 // Set OLED_ENABLED to 0 if no display is attached.
+// displayBegin() auto-probes the bus: if the panel doesn't answer here it also
+// tries the other common SDA (21<->23) and address (0x3C<->0x3D) and logs what
+// worked, so a slightly different board still lights up.
 #define OLED_ENABLED 1
-#define OLED_SDA     21
+#define OLED_SDA     21   // esp32dev default I2C SDA (HUZZAH32 Feather uses 23)
 #define OLED_SCL     22
 #define OLED_ADDR    0x3C   // try 0x3D if your module doesn't light up
 #define OLED_WIDTH   128

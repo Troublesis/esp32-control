@@ -642,10 +642,35 @@ void renderDisplay() {
 // Arduino entry points
 // ----------------------------------------------------------------------------
 
+// Print exactly which GPIO each module's SIGNAL wire connects to. Values come
+// straight from config.h so the log is always the source of truth for wiring.
+void printPinMap() {
+  Serial.println("--- Wiring / pin map (connect each SIGNAL wire to this GPIO) ---");
+  Serial.printf("  Relay 1    : GPIO %d   (signal, ON = %s)\n", RELAY1_PIN, RELAY_ON_STATE == HIGH ? "HIGH" : "LOW");
+  Serial.printf("  Relay 2    : GPIO %d   (signal, ON = %s)\n", RELAY2_PIN, RELAY_ON_STATE == HIGH ? "HIGH" : "LOW");
+#if LASER_ENABLED
+  Serial.printf("  Laser TX   : GPIO %d   (signal in,  laser ON = %s)\n", LASER_PIN, LASER_ON_STATE == HIGH ? "HIGH" : "LOW");
+#endif
+#if RECEIVER_ENABLED
+  Serial.printf("  Laser RX   : GPIO %d   (signal out, beam present = %s)\n", RECEIVER_PIN, RECEIVER_BEAM_HIGH ? "HIGH" : "LOW");
+#endif
+#if PIR_ENABLED
+  Serial.printf("  PIR motion : GPIO %d    (signal out, motion = HIGH)\n", PIR_PIN);
+#endif
+#if OLED_ENABLED
+  Serial.printf("  OLED SDA   : GPIO %d\n", OLED_SDA);
+  Serial.printf("  OLED SCL   : GPIO %d\n", OLED_SCL);
+#endif
+  Serial.println("  ALL modules: VCC -> ESP32 3V3, GND -> ESP32 GND (must share a common ground!)");
+  Serial.println("  Tip: power the laser RX from 3V3 so its HIGH output stays at 3.3 V (GPIO-safe).");
+  Serial.println("---------------------------------------------------------------");
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n=== ESP32 Dual Relay Controller v" FW_VERSION " ===");
+  Serial.println("\n=== ESP32 Relay + Laser Controller v" FW_VERSION " ===");
+  printPinMap();
 
   prefs.begin("relay", false);
 

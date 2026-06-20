@@ -21,8 +21,8 @@ void sensorBegin(Sensor& s) {
   s.lastAlertAt = 0;
   s.count      = 0;
   s.lastSeq    = 0;
-  Serial.printf("[%s] enabled on GPIO %d (initial %s)\n",
-                s.tag, s.pin, s.curState ? "ALERT" : "clear");
+  Serial.printf("[%s] enabled on GPIO %d (initial raw %s -> %s)\n",
+                s.tag, s.pin, raw ? "HIGH" : "LOW", s.curState ? "ALERT" : "clear");
 }
 
 void sensorUpdate(Sensor& s) {
@@ -74,6 +74,8 @@ String sensorStatusJson(const Sensor& s) {
   j += ",\"count\":" + String(s.count);
   j += ",\"lastSeq\":" + String(s.lastSeq);
   j += ",\"delay\":" + String(s.detectDelayMs);
+  j += ",\"raw\":" + String(digitalRead(s.pin) == HIGH ? 1 : 0); // live pin level for wiring checks
+  j += ",\"pin\":" + String(s.pin);
   j += "}";
   return j;
 }

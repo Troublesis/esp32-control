@@ -110,7 +110,7 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 
     <div class="card" id="motionCard" style="display:none">
       <h2>🚶 Motion Sensor <span class="badge clear" id="motionBadge">—</span></h2>
-      <div class="mstats"><span>Detections: <b id="motionCount">0</b></span></div>
+      <div class="mstats"><span>Detections: <b id="motionCount">0</b></span><span>Signal: <b id="motionRaw">—</b></span></div>
       <div class="settings">
         <label>Detection delay (ms) — min gap between detections (0 = most responsive)</label>
         <div class="field">
@@ -122,7 +122,7 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 
     <div class="card" id="receiverCard" style="display:none">
       <h2>🎯 Laser Beam <span class="badge clear" id="receiverBadge">—</span></h2>
-      <div class="mstats"><span>Beam breaks: <b id="receiverCount">0</b></span></div>
+      <div class="mstats"><span>Beam breaks: <b id="receiverCount">0</b></span><span>Signal: <b id="receiverRaw">—</b></span></div>
       <div class="settings">
         <label>Detection delay (ms) — min gap between breaks (0 = most responsive)</label>
         <div class="field">
@@ -276,6 +276,9 @@ function updateSensor(prefix, s, onLabel, offLabel, onCls) {
   badge.textContent = s.active ? onLabel : offLabel;
   badge.className = 'badge ' + (s.active ? onCls : 'clear');
   document.getElementById(prefix + 'Count').textContent = s.count;
+  const rw = document.getElementById(prefix + 'Raw');
+  if (rw && typeof s.raw !== 'undefined')
+    rw.textContent = (s.raw ? 'HIGH' : 'LOW') + (typeof s.pin !== 'undefined' ? ` (GPIO ${s.pin})` : '');
   const di = document.getElementById(prefix + 'Delay');
   if (di && editing !== prefix + 'Delay') di.value = s.delay;
 }
