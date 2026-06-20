@@ -91,6 +91,16 @@ static void appendJsonString(String& json, const char* key, const char* value) {
   json += "\"";
 }
 
+// The address a phone can actually open when tapping the notification: prefer
+// the live LAN IP (always resolvable) over the mDNS ".local" name, which many
+// mobile clients can't look up. Falls back to the configured BARK_OPEN_URL only
+// if WiFi somehow isn't connected (we don't normally send a push in that case).
+static String deviceWebUrl() {
+  if (WiFi.status() == WL_CONNECTED)
+    return "http://" + WiFi.localIP().toString() + "/";
+  return String(BARK_OPEN_URL);
+}
+
 static String barkBody(const MotionEvent& ev) {
   String body = BARK_BODY;
   String ts = formatTs(ev.epoch);
@@ -100,7 +110,8 @@ static String barkBody(const MotionEvent& ev) {
   }
   body += "\nDevice: ";
   body += deviceHostname();
-  body += ".local";
+  body += "\nOpen: ";
+  body += deviceWebUrl();
   return body;
 }
 
@@ -115,7 +126,8 @@ static String barkPayload(const MotionEvent& ev) {
   appendJsonString(json, "sound", BARK_SOUND);
   appendJsonString(json, "icon", BARK_ICON);
   appendJsonString(json, "group", BARK_GROUP);
-  appendJsonString(json, "url", BARK_OPEN_URL);
+  String openUrl = deviceWebUrl();
+  appendJsonString(json, "url", openUrl.c_str());
   json += "}";
   return json;
 }

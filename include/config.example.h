@@ -125,6 +125,8 @@
 #define BARK_SOUND       "door-close"
 #define BARK_ICON        ""
 #define BARK_GROUP       "esp32"
+// Fallback only: the push normally opens the device's live LAN IP (http://<ip>/),
+// which resolves on phones; this is used just if WiFi is down when sending.
 #define BARK_OPEN_URL    "http://relay.local/"
 #define BARK_TIMEOUT_MS  3000
 

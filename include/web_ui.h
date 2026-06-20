@@ -18,7 +18,9 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
          background:var(--bg); color:#e2e8f0; padding:16px; }
   header { max-width:760px; margin:0 auto 16px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   h1 { font-size:1.25rem; margin:0; }
-  .wifi { font-size:.8rem; color:var(--muted); text-align:right; }
+  .wifi { font-size:.8rem; color:var(--muted); text-align:right; line-height:1.5; }
+  .wifi .hostlink { color:#e2e8f0; font-weight:600; text-decoration:none; }
+  .wifi .hostlink:hover { color:var(--accent); }
   .grid { max-width:760px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
   .card { background:var(--card); border-radius:14px; padding:18px; box-shadow:0 4px 20px rgba(0,0,0,.25); }
   .card h2 { margin:0 0 4px; font-size:1.05rem; display:flex; align-items:center; gap:8px; }
@@ -70,29 +72,6 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
   </header>
   <div class="grid" id="grid"></div>
 
-  <div class="grid" style="margin-top:16px">
-    <div class="card">
-      <h2>📶 WiFi</h2>
-      <div class="meta" id="wifiInfo">—</div>
-      <div class="settings">
-        <label>Network (SSID)</label>
-        <input type="text" id="wifiSsid" placeholder="WiFi name" autocomplete="off">
-        <label style="margin-top:10px">Password</label>
-        <input type="password" id="wifiPass" placeholder="leave blank to keep current">
-        <button class="btn save" onclick="saveWifi()">Save &amp; reconnect</button>
-        <div class="meta" id="wifiMsg"></div>
-      </div>
-    </div>
-    <div class="card">
-      <h2>⬆️ Firmware</h2>
-      <div class="meta" id="fwInfo">—</div>
-      <div class="settings">
-        <a class="btn save" href="/update" style="display:block; text-align:center; text-decoration:none; line-height:1.2">Open updater</a>
-        <div class="meta">Upload a new <code>firmware.bin</code> over the air.</div>
-      </div>
-    </div>
-  </div>
-
   <div class="section" id="motionSection" style="display:none">
     <div class="card">
       <h2>🚶 Motion Sensor
@@ -106,10 +85,33 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
         <button class="btn ghost" id="barkToggle" onclick="toggleBark()">🔔 Bark notifications</button>
       </div>
       <div class="loghead">
-        <label style="margin:0">History log (newest at bottom, up to 999)</label>
+        <label style="margin:0">History log (newest at top, up to 999)</label>
         <button class="btn" onclick="clearMotionLog()">Clear log</button>
       </div>
       <div class="log" id="motionLog"><div class="empty">Waiting for sensor events…</div></div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <div class="card">
+      <h2>⬆️ Firmware</h2>
+      <div class="meta" id="fwInfo">—</div>
+      <div class="settings">
+        <a class="btn save" href="/update" style="display:block; text-align:center; text-decoration:none; line-height:1.2">Open updater</a>
+        <div class="meta">Upload a new <code>firmware.bin</code> over the air.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📶 WiFi</h2>
+      <div class="meta" id="wifiInfo">—</div>
+      <div class="settings">
+        <label>Network (SSID)</label>
+        <input type="text" id="wifiSsid" placeholder="WiFi name" autocomplete="off">
+        <label style="margin-top:10px">Password</label>
+        <input type="password" id="wifiPass" placeholder="leave blank to keep current">
+        <button class="btn save" onclick="saveWifi()">Save &amp; reconnect</button>
+        <div class="meta" id="wifiMsg"></div>
+      </div>
     </div>
   </div>
 
@@ -179,9 +181,12 @@ async function saveWifi() {
 }
 
 function render(data) {
-  document.getElementById('wifi').textContent =
-    data.wifi.connected ? `${data.wifi.ssid} · ${data.wifi.ip} · ${data.wifi.rssi} dBm`
-                        : 'WiFi offline';
+  const w = data.wifi;
+  const line = w.connected ? `${w.ssid} · ${w.ip} · ${w.rssi} dBm` : 'WiFi offline';
+  const host = w.hostname
+    ? `<a class="hostlink" href="http://${w.hostname}.local/">${w.hostname}.local</a><br>`
+    : '';
+  document.getElementById('wifi').innerHTML = host + line;
   const wi = document.getElementById('wifiInfo');
   if (wi) wi.textContent = data.wifi.connected
     ? `Connected to ${data.wifi.ssid} (${data.wifi.ip}, ${data.wifi.rssi} dBm)`
@@ -273,12 +278,14 @@ async function refreshLog() {
   const box = document.getElementById('motionLog');
   const empty = box.querySelector('.empty');
   if (empty) empty.remove();
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const atTop = box.scrollTop < 40;
+  // Events arrive oldest→newest; prepend each into the batch so it ends up
+  // newest-first, then drop the whole batch above the rows already shown.
   const frag = document.createDocumentFragment();
-  events.forEach(e => { if (e.seq > motionSeq) motionSeq = e.seq; frag.append(logLine(e)); });
-  box.append(frag);
-  while (box.children.length > 999) box.removeChild(box.firstChild); // hard cap
-  if (atBottom || !motionPrimed) box.scrollTop = box.scrollHeight;
+  events.forEach(e => { if (e.seq > motionSeq) motionSeq = e.seq; frag.prepend(logLine(e)); });
+  box.prepend(frag);
+  while (box.children.length > 999) box.removeChild(box.lastChild); // hard cap (oldest at bottom)
+  if (atTop || !motionPrimed) box.scrollTop = 0;
   motionPrimed = true;
 }
 

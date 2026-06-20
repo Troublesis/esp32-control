@@ -162,6 +162,7 @@ String statusJson() {
   s += ",\"ip\":\"" + (apMode ? WiFi.softAPIP().toString()
                               : (up ? WiFi.localIP().toString() : String("0.0.0.0"))) + "\"";
   s += ",\"rssi\":" + String(up ? WiFi.RSSI() : 0);
+  s += ",\"hostname\":\"" + deviceHostname() + "\"";
   s += "},\"device\":{";
   s += "\"version\":\"" FW_VERSION "\"";
   s += ",\"uptime\":" + String(millis() / 1000);
