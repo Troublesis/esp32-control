@@ -102,6 +102,9 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
         <span>Last trigger: <b id="motionLast">—</b></span>
         <span>Detections: <b id="motionCount">0</b></span>
       </div>
+      <div class="row" id="barkRow" style="display:none; margin:0 0 14px">
+        <button class="btn ghost" id="barkToggle" onclick="toggleBark()">🔔 Bark notifications</button>
+      </div>
       <div class="loghead">
         <label style="margin:0">History log (newest at bottom, up to 999)</label>
         <button class="btn" onclick="clearMotionLog()">Clear log</button>
@@ -156,6 +159,11 @@ async function saveSettings(id) {
   const on  = document.getElementById(`on-${id}`).value;
   const off = document.getElementById(`off-${id}`).value;
   render(await api(`/api/settings?relay=${id}&onDuration=${on}&offDuration=${off}`));
+}
+async function toggleBark() {
+  const bt = document.getElementById('barkToggle');
+  const next = bt.classList.contains('active') ? 0 : 1; // flip current state
+  render(await api(`/api/motion/bark?enabled=${next}`));
 }
 
 async function saveWifi() {
@@ -215,6 +223,15 @@ function updateMotion(m) {
   document.getElementById('motionLast').textContent =
     m.lastSeq === 0 ? 'none yet'
                     : (m.lastTs || `+${Math.floor(m.lastUp/1000)}s uptime`);
+  const barkRow = document.getElementById('barkRow');
+  if (m.barkAvailable) {
+    barkRow.style.display = '';
+    const bt = document.getElementById('barkToggle');
+    bt.classList.toggle('active', !!m.barkEnabled);
+    bt.textContent = m.barkEnabled ? '🔔 Bark: ON' : '🔕 Bark: OFF';
+  } else {
+    barkRow.style.display = 'none';
+  }
 }
 
 document.addEventListener('focusin',  e => { if (e.target.tagName==='INPUT') editing = e.target.id; });

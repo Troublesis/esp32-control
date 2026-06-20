@@ -43,3 +43,13 @@ String motionLogJson(unsigned long sinceSeq);
 
 // Forget all recorded events and reset the sequence counter (keeps pin state).
 void motionClearLog();
+
+// ----------------------------------------------------------------------------
+// Bark push notifications (runtime toggle, persisted by main.cpp)
+// ----------------------------------------------------------------------------
+// "Available" means the Bark client was compiled in (PIR_ENABLED && BARK_ENABLED);
+// only then can it be toggled. "Enabled" is the live on/off state that gates
+// whether a detection actually sends a push.
+bool motionBarkAvailable();
+bool motionBarkEnabled();
+void motionSetBark(bool enabled);

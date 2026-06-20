@@ -309,6 +309,20 @@ void handleMotionClear() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+// POST/GET /api/motion/bark?enabled=1|0 -> toggle Bark push notifications and
+// persist the choice so it survives reboots.
+void handleMotionBark() {
+  if (!motionBarkAvailable())
+    return sendError(400, "bark notifications not available in this build");
+  if (server.hasArg("enabled")) {
+    String v = server.arg("enabled");
+    bool on = (v == "1" || v == "true" || v == "on");
+    motionSetBark(on);
+    prefs.putBool("bark_on", on);
+  }
+  sendStatus();
+}
+
 // ----------------------------------------------------------------------------
 // HTTP route handlers — OTA (browser firmware upload)
 // ----------------------------------------------------------------------------
@@ -381,6 +395,7 @@ void setupRoutes() {
 
   onGetPost("/api/motion/log", handleMotionLog);
   onGetPost("/api/motion/clear", handleMotionClear);
+  onGetPost("/api/motion/bark", handleMotionBark);
 
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
@@ -505,6 +520,8 @@ void setup() {
   }
 
   motionBegin(); // PIR input (no-op when PIR_ENABLED is 0)
+  // Restore the persisted Bark on/off choice (defaults ON when compiled in).
+  if (motionBarkAvailable()) motionSetBark(prefs.getBool("bark_on", true));
 
 #if OLED_ENABLED
   displaySplash("Relay", "connecting WiFi");

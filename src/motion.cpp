@@ -61,6 +61,11 @@ static String formatTs(time_t epoch) {
 }
 
 #if BARK_ENABLED
+// Live on/off switch for push notifications. Seeded from the BARK_ENABLED build
+// default; main.cpp restores the persisted value at boot and flips it via the
+// WebUI (/api/motion/bark).
+static bool barkEnabled = true;
+
 static String jsonEscape(const char* value) {
   String out;
   out.reserve(strlen(value) + 8);
@@ -116,6 +121,7 @@ static String barkPayload(const MotionEvent& ev) {
 }
 
 static void sendBarkMotionNotification(const MotionEvent& ev) {
+  if (!barkEnabled) return; // user turned notifications off from the WebUI
   if (BARK_PUSH_URL[0] == '\0' || BARK_DEVICE_KEY[0] == '\0') {
     Serial.println("[bark] skipped: missing URL or device key");
     return;
@@ -169,7 +175,12 @@ static void appendEvent(bool motion) {
 }
 
 void motionBegin() {
-  pinMode(PIR_PIN, INPUT);
+  // INPUT_PULLDOWN, not plain INPUT: an unconnected pin floats and picks up
+  // noise that reads as random HIGH pulses (phantom "motion" with no sensor
+  // attached). The internal pull-down holds the line LOW when idle/disconnected;
+  // a real active-HIGH PIR easily overrides it when it asserts. (Input-only pins
+  // GPIO 34-39 have no internal pull-downs — wire an external one there.)
+  pinMode(PIR_PIN, INPUT_PULLDOWN);
   // Seed state from the current level without logging a boot-time event.
   bool level = digitalRead(PIR_PIN) == HIGH;
   curState = rawLast = level;
@@ -200,6 +211,19 @@ bool motionEnabled() { return true; }
 bool motionActive()  { return curState; }
 unsigned long motionLatestSeq() { return seqCounter; }
 
+#if BARK_ENABLED
+bool motionBarkAvailable() { return true; }
+bool motionBarkEnabled()   { return barkEnabled; }
+void motionSetBark(bool enabled) {
+  barkEnabled = enabled;
+  Serial.printf("[bark] notifications %s\n", enabled ? "enabled" : "disabled");
+}
+#else
+bool motionBarkAvailable() { return false; }
+bool motionBarkEnabled()   { return false; }
+void motionSetBark(bool)   {}
+#endif
+
 String motionStatusJson() {
   time_t lastEpoch = 0;
   unsigned long lastUp = 0;
@@ -215,6 +239,8 @@ String motionStatusJson() {
   s += ",\"lastSeq\":" + String(seqCounter);
   s += ",\"lastTs\":\"" + formatTs(lastEpoch) + "\"";
   s += ",\"lastUp\":" + String(lastUp);
+  s += ",\"barkAvailable\":" + String(motionBarkAvailable() ? "true" : "false");
+  s += ",\"barkEnabled\":" + String(motionBarkEnabled() ? "true" : "false");
   s += "}";
   return s;
 }
@@ -253,8 +279,13 @@ void motionUpdate() {}
 bool motionEnabled() { return false; }
 bool motionActive()  { return false; }
 unsigned long motionLatestSeq() { return 0; }
-String motionStatusJson() { return String("{\"enabled\":false}"); }
+String motionStatusJson() {
+  return String("{\"enabled\":false,\"barkAvailable\":false,\"barkEnabled\":false}");
+}
 String motionLogJson(unsigned long) { return String("{\"latest\":0,\"events\":[]}"); }
 void motionClearLog() {}
+bool motionBarkAvailable() { return false; }
+bool motionBarkEnabled()   { return false; }
+void motionSetBark(bool)   {}
 
 #endif
