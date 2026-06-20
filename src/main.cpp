@@ -13,6 +13,9 @@
 #include "setup_ui.h"
 #include "display.h"
 #include "motion.h"
+#include "receiver.h"
+#include "bark.h"
+#include "eventlog.h"
 #include "identity.h"
 
 // ============================================================================
@@ -41,7 +44,20 @@
 //   PIR GND  -->  ESP32 GND
 //   PIR S    -->  ESP32 GPIO 4   (PIR_PIN)
 //   Signal goes HIGH on motion, LOW after the sensor's hold time. The WebUI
-//   shows live state + a timestamped history log. Set PIR_ENABLED 0 to skip it.
+//   shows live state + the unified event log. Set PIR_ENABLED 0 to skip it.
+//
+// Laser emitter (3 pins: VCC / GND / Signal):
+//   Laser VCC  -->  ESP32 3V3 (or 5V per module)
+//   Laser GND  -->  ESP32 GND
+//   Laser S    -->  ESP32 GPIO 25  (LASER_PIN)
+//   Driven like a relay (AUTO cycle / MANUAL hold). Active HIGH by default.
+//
+// Laser-beam receiver (3 pins: VCC / GND / Signal):
+//   Receiver VCC  -->  ESP32 3V3
+//   Receiver GND  -->  ESP32 GND
+//   Receiver S    -->  ESP32 GPIO 33  (RECEIVER_PIN)
+//   Aim the laser at it; breaking the beam is logged + can fire a Bark push.
+//   Set RECEIVER_ENABLED 0 to skip it.
 //
 // Pins / active state / WiFi credentials are all configured in include/config.h
 //
@@ -61,9 +77,14 @@
 
 enum RelayMode { MODE_MANUAL = 0, MODE_AUTO = 1 };
 
+// A switchable output channel. Drives both the relays and the laser emitter —
+// the laser is just a relay-like output with its own active level (active HIGH
+// vs the relays' active LOW), so it reuses every helper below.
 struct Relay {
   const char* nvsKey;        // namespace key prefix for persistence
   int pin;
+  uint8_t onLevel;           // pin level written for ON
+  uint8_t offLevel;          // pin level written for OFF
   unsigned long onDuration;  // ms — time held ON in AUTO mode
   unsigned long offDuration; // ms — time held OFF in AUTO mode
   RelayMode mode;
@@ -73,9 +94,19 @@ struct Relay {
 };
 
 Relay relays[2] = {
-  { "r1", RELAY1_PIN, RELAY1_DEFAULT_ON_MS, RELAY1_DEFAULT_OFF_MS, MODE_MANUAL, false, 0 },
-  { "r2", RELAY2_PIN, RELAY2_DEFAULT_ON_MS, RELAY2_DEFAULT_OFF_MS, MODE_MANUAL, false, 0 },
+  { "r1", RELAY1_PIN, RELAY_ON_STATE, RELAY_OFF_STATE, RELAY1_DEFAULT_ON_MS, RELAY1_DEFAULT_OFF_MS, MODE_MANUAL, false, 0 },
+  { "r2", RELAY2_PIN, RELAY_ON_STATE, RELAY_OFF_STATE, RELAY2_DEFAULT_ON_MS, RELAY2_DEFAULT_OFF_MS, MODE_MANUAL, false, 0 },
 };
+
+#if LASER_ENABLED
+// Laser emitter — a standalone output reusing the Relay abstraction. Active HIGH
+// by default (LASER_ON_STATE). Persisted under its own "laser" NVS key prefix.
+Relay laser = {
+  "laser", LASER_PIN, LASER_ON_STATE, LASER_OFF_STATE,
+  LASER_DEFAULT_ON_MS, LASER_DEFAULT_OFF_MS,
+  LASER_DEFAULT_AUTO ? MODE_AUTO : MODE_MANUAL, false, 0,
+};
+#endif
 
 WebServer server(WEB_SERVER_PORT);
 Preferences prefs;
@@ -89,7 +120,7 @@ const byte DNS_PORT = 53;
 // ----------------------------------------------------------------------------
 
 void writeRelayPin(Relay& r) {
-  digitalWrite(r.pin, r.isOn ? RELAY_ON_STATE : RELAY_OFF_STATE);
+  digitalWrite(r.pin, r.isOn ? r.onLevel : r.offLevel);
 }
 
 // Apply a logical state immediately and reset the AUTO timing window.
@@ -153,6 +184,23 @@ String relayJson(const Relay& r, int id) {
   return s;
 }
 
+// Laser emitter status — same shape as a relay plus an "enabled" flag, so the
+// WebUI can render it with the relay card logic.
+String laserJson() {
+#if LASER_ENABLED
+  String s = "{\"enabled\":true";
+  s += ",\"state\":\"" + String(laser.isOn ? "on" : "off") + "\"";
+  s += ",\"mode\":\"" + String(laser.mode == MODE_AUTO ? "auto" : "manual") + "\"";
+  s += ",\"onDuration\":" + String(laser.onDuration / 1000);
+  s += ",\"offDuration\":" + String(laser.offDuration / 1000);
+  s += ",\"remaining\":" + String(remainingSeconds(laser));
+  s += "}";
+  return s;
+#else
+  return String("{\"enabled\":false}");
+#endif
+}
+
 String statusJson() {
   bool up = WiFi.status() == WL_CONNECTED;
   String s = "{\"wifi\":{";
@@ -169,7 +217,10 @@ String statusJson() {
   s += ",\"heap\":" + String(ESP.getFreeHeap());
   s += "},\"relays\":[";
   s += relayJson(relays[0], 1) + "," + relayJson(relays[1], 2);
-  s += "],\"motion\":" + motionStatusJson();
+  s += "],\"laser\":" + laserJson();
+  s += ",\"motion\":" + motionStatusJson();
+  s += ",\"receiver\":" + receiverStatusJson();
+  s += ",\"bark\":" + barkStatusJson();
   s += "}";
   return s;
 }
@@ -218,6 +269,11 @@ void handleControl() {
     saveRelaySettings(r);
     bool target = (action == "toggle") ? !r.isOn : (action == "on");
     setRelay(r, target);
+    // Log + notify deliberate (manual) switches only — auto-cycle ticks are
+    // periodic and would flood both the log and any Bark subscription.
+    String msg = "Relay " + String(idx + 1) + (target ? " ON" : " OFF");
+    logEvent(idx == 0 ? LOG_RELAY1 : LOG_RELAY2, target, msg);
+    barkSend(idx == 0 ? BARK_SRC_RELAY1 : BARK_SRC_RELAY2, BARK_RELAY_TITLE, msg);
     return sendStatus();
   }
   sendError(400, "action must be on, off or toggle");
@@ -246,6 +302,8 @@ void handleSettings() {
     else if (m == "manual") r.mode = MODE_MANUAL;
     else return sendError(400, "mode must be auto or manual");
     r.lastToggle = millis(); // start a fresh window on mode change
+    logEvent(idx == 0 ? LOG_RELAY1 : LOG_RELAY2, false,
+             "Relay " + String(idx + 1) + (r.mode == MODE_AUTO ? " -> AUTO" : " -> MANUAL"));
   }
 
   saveRelaySettings(r);
@@ -293,33 +351,111 @@ void handleWifiReset() {
 }
 
 // ----------------------------------------------------------------------------
-// HTTP route handlers — PIR motion sensor
+// HTTP route handlers — laser emitter (reuses the relay helpers)
 // ----------------------------------------------------------------------------
 
-// GET/POST /api/motion/log[?since=N] -> events with seq > N (oldest first).
-// The WebUI passes the highest seq it has seen so only new events come back.
-void handleMotionLog() {
-  unsigned long since = server.hasArg("since")
-                          ? (unsigned long)server.arg("since").toInt() : 0UL;
-  server.send(200, "application/json", motionLogJson(since));
+#if LASER_ENABLED
+// POST/GET /api/laser/control?action=on|off|toggle — drive the laser and force
+// MANUAL mode so the command isn't overridden by the auto-cycle.
+void handleLaserControl() {
+  if (!server.hasArg("action")) return sendError(400, "missing 'action'");
+  String action = server.arg("action");
+  if (action != "on" && action != "off" && action != "toggle")
+    return sendError(400, "action must be on, off or toggle");
+
+  laser.mode = MODE_MANUAL;
+  saveRelaySettings(laser);
+  bool target = (action == "toggle") ? !laser.isOn : (action == "on");
+  setRelay(laser, target);
+  logEvent(LOG_LASER, target, target ? "Laser ON" : "Laser OFF");
+  sendStatus();
 }
 
-// POST/GET /api/motion/clear -> wipe the in-RAM history log.
-void handleMotionClear() {
-  motionClearLog();
+// POST/GET /api/laser/settings[?onDuration=s][&offDuration=s][&mode=auto|manual]
+void handleLaserSettings() {
+  if (server.hasArg("onDuration")) {
+    long s = server.arg("onDuration").toInt();
+    if (s < 1) return sendError(400, "onDuration must be >= 1 second");
+    laser.onDuration = (unsigned long)s * 1000UL;
+  }
+  if (server.hasArg("offDuration")) {
+    long s = server.arg("offDuration").toInt();
+    if (s < 1) return sendError(400, "offDuration must be >= 1 second");
+    laser.offDuration = (unsigned long)s * 1000UL;
+  }
+  if (server.hasArg("mode")) {
+    String m = server.arg("mode");
+    if (m == "auto") laser.mode = MODE_AUTO;
+    else if (m == "manual") laser.mode = MODE_MANUAL;
+    else return sendError(400, "mode must be auto or manual");
+    laser.lastToggle = millis();
+    logEvent(LOG_LASER, false, laser.mode == MODE_AUTO ? "Laser -> AUTO" : "Laser -> MANUAL");
+  }
+  saveRelaySettings(laser);
+  sendStatus();
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// HTTP route handlers — unified event log, sensor tuning, Bark toggles
+// ----------------------------------------------------------------------------
+
+// GET/POST /api/log[?since=N] -> unified events with seq > N (oldest first).
+// The WebUI passes the highest seq it has seen so only new events come back.
+void handleLog() {
+  unsigned long since = server.hasArg("since")
+                          ? (unsigned long)server.arg("since").toInt() : 0UL;
+  server.send(200, "application/json", logJson(since));
+}
+
+// POST/GET /api/log/clear -> wipe the in-RAM event log.
+void handleLogClear() {
+  logClear();
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
-// POST/GET /api/motion/bark?enabled=1|0 -> toggle Bark push notifications and
-// persist the choice so it survives reboots.
-void handleMotionBark() {
-  if (!motionBarkAvailable())
+// POST/GET /api/motion/delay?ms=N -> set + persist the PIR detection delay.
+void handleMotionDelay() {
+  if (!motionEnabled()) return sendError(400, "motion sensor not available");
+  if (server.hasArg("ms")) {
+    long ms = server.arg("ms").toInt();
+    if (ms < 0) return sendError(400, "ms must be >= 0");
+    motionSetDelay((unsigned long)ms);
+    prefs.putULong("pir_delay", (unsigned long)ms);
+  }
+  sendStatus();
+}
+
+// POST/GET /api/receiver/delay?ms=N -> set + persist the beam detection delay.
+void handleReceiverDelay() {
+  if (!receiverEnabled()) return sendError(400, "receiver not available");
+  if (server.hasArg("ms")) {
+    long ms = server.arg("ms").toInt();
+    if (ms < 0) return sendError(400, "ms must be >= 0");
+    receiverSetDelay((unsigned long)ms);
+    prefs.putULong("rx_delay", (unsigned long)ms);
+  }
+  sendStatus();
+}
+
+// POST/GET /api/bark?source=relay1|relay2|motion|laser&enabled=1|0 -> flip a
+// per-source push toggle and persist it.
+void handleBark() {
+  if (!barkAvailable())
     return sendError(400, "bark notifications not available in this build");
+  if (!server.hasArg("source")) return sendError(400, "missing 'source'");
+  String src = server.arg("source");
+  int s = -1;
+  if (src == "relay1")      s = BARK_SRC_RELAY1;
+  else if (src == "relay2") s = BARK_SRC_RELAY2;
+  else if (src == "motion") s = BARK_SRC_MOTION;
+  else if (src == "laser")  s = BARK_SRC_LASER;
+  else return sendError(400, "source must be relay1, relay2, motion or laser");
+
   if (server.hasArg("enabled")) {
     String v = server.arg("enabled");
     bool on = (v == "1" || v == "true" || v == "on");
-    motionSetBark(on);
-    prefs.putBool("bark_on", on);
+    barkSetEnabled(prefs, s, on);
   }
   sendStatus();
 }
@@ -394,9 +530,16 @@ void setupRoutes() {
   onGetPost("/api/wifi", handleWifiSave);
   onGetPost("/api/wifi/reset", handleWifiReset);
 
-  onGetPost("/api/motion/log", handleMotionLog);
-  onGetPost("/api/motion/clear", handleMotionClear);
-  onGetPost("/api/motion/bark", handleMotionBark);
+#if LASER_ENABLED
+  onGetPost("/api/laser/control", handleLaserControl);
+  onGetPost("/api/laser/settings", handleLaserSettings);
+#endif
+
+  onGetPost("/api/log", handleLog);
+  onGetPost("/api/log/clear", handleLogClear);
+  onGetPost("/api/motion/delay", handleMotionDelay);
+  onGetPost("/api/receiver/delay", handleReceiverDelay);
+  onGetPost("/api/bark", handleBark);
 
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
@@ -489,6 +632,8 @@ void renderDisplay() {
   }
   d.motionEnabled = motionEnabled();
   d.motionActive = motionActive();
+  d.laserEnabled = receiverEnabled();   // OLED "Laser" row = beam receiver state
+  d.laserActive = receiverActive();     // true while the beam is broken
   displayRender(d);
 }
 #endif
@@ -520,9 +665,24 @@ void setup() {
                   r.onDuration / 1000, r.offDuration / 1000);
   }
 
-  motionBegin(); // PIR input (no-op when PIR_ENABLED is 0)
-  // Restore the persisted Bark on/off choice (defaults ON when compiled in).
-  if (motionBarkAvailable()) motionSetBark(prefs.getBool("bark_on", true));
+#if LASER_ENABLED
+  pinMode(laser.pin, OUTPUT);
+  loadRelaySettings(laser);
+  setRelay(laser, false); // boot OFF for safety
+  Serial.printf("[laser] pin %d | mode %s | ON %lus / OFF %lus\n",
+                laser.pin, laser.mode == MODE_AUTO ? "auto" : "manual",
+                laser.onDuration / 1000, laser.offDuration / 1000);
+#endif
+
+  motionBegin();   // PIR input (no-op when PIR_ENABLED is 0)
+  receiverBegin(); // laser-beam receiver (no-op when RECEIVER_ENABLED is 0)
+
+  // Restore persisted detection delays + per-source Bark toggles.
+  motionSetDelay(prefs.getULong("pir_delay", PIR_DEFAULT_DELAY_MS));
+  receiverSetDelay(prefs.getULong("rx_delay", RECEIVER_DEFAULT_DELAY_MS));
+  barkBegin(prefs);
+
+  logEvent(LOG_SYSTEM, false, "Device booted v" FW_VERSION);
 
 #if OLED_ENABLED
   displaySplash("Relay", "connecting WiFi");
@@ -550,8 +710,12 @@ void loop() {
 
   updateRelay(relays[0]);
   updateRelay(relays[1]);
+#if LASER_ENABLED
+  updateRelay(laser);
+#endif
 
-  motionUpdate(); // poll PIR + record edges (no-op when PIR_ENABLED is 0)
+  motionUpdate();   // poll PIR + record edges (no-op when PIR_ENABLED is 0)
+  receiverUpdate(); // poll laser receiver       (no-op when RECEIVER_ENABLED is 0)
 
 #if OLED_ENABLED
   if (millis() - lastDisplay > 500) {  // refresh OLED ~2x/sec

@@ -22,6 +22,7 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
   .wifi .hostlink { color:#e2e8f0; font-weight:600; text-decoration:none; }
   .wifi .hostlink:hover { color:var(--accent); }
   .grid { max-width:760px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
+  .grid + .grid { margin-top:16px; }
   .card { background:var(--card); border-radius:14px; padding:18px; box-shadow:0 4px 20px rgba(0,0,0,.25); }
   .card h2 { margin:0 0 4px; font-size:1.05rem; display:flex; align-items:center; gap:8px; }
   .badge { font-size:.7rem; padding:2px 8px; border-radius:999px; font-weight:700; letter-spacing:.04em; }
@@ -37,31 +38,41 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
   .btn.ghost.active { background:var(--accent); }
   label { font-size:.8rem; color:var(--muted); display:block; margin-bottom:4px; }
   .settings { margin-top:14px; border-top:1px solid #334155; padding-top:14px; }
-  .field { display:flex; gap:10px; }
+  .field { display:flex; gap:10px; align-items:flex-end; }
   .field > div { flex:1; }
-  input[type=number] { width:100%; padding:9px; border-radius:8px; border:1px solid #475569;
+  input[type=number], input[type=text], input[type=password] { width:100%; padding:9px; border-radius:8px; border:1px solid #475569;
                        background:#0f172a; color:#e2e8f0; font-size:1rem; }
   .save { width:100%; margin-top:12px; background:var(--accent); }
+  .btn.mini { flex:0 0 auto; width:auto; padding:9px 16px; background:var(--accent); margin:0; }
   .meta { font-size:.75rem; color:var(--muted); margin-top:8px; min-height:1em; }
   footer { max-width:760px; margin:18px auto 0; font-size:.75rem; color:var(--muted); text-align:center; }
   .modepill { display:flex; gap:6px; }
   .modepill .btn { padding:8px; font-size:.85rem; }
   .section { max-width:760px; margin:16px auto 0; }
   .badge.motion { background:rgba(245,158,11,.18); color:#f59e0b; animation:pulse 1.2s ease-in-out infinite; }
+  .badge.broken { background:rgba(239,68,68,.18); color:#f87171; animation:pulse 1.2s ease-in-out infinite; }
   .badge.clear  { background:rgba(148,163,184,.18); color:var(--muted); }
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
-  .mstats { display:flex; gap:18px; flex-wrap:wrap; font-size:.8rem; color:var(--muted); margin:6px 0 12px; }
+  .mstats { display:flex; gap:18px; flex-wrap:wrap; font-size:.8rem; color:var(--muted); margin:6px 0 4px; }
   .mstats b { color:#e2e8f0; font-weight:600; }
-  .loghead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; }
+  .toggles { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+  .toggles .btn { padding:10px; font-size:.9rem; }
+  .loghead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:4px; }
   .loghead .btn { flex:0 0 auto; padding:7px 12px; font-size:.8rem; background:#334155; }
-  .log { background:#0b1220; border:1px solid #334155; border-radius:10px; height:300px;
+  .log { background:#0b1220; border:1px solid #334155; border-radius:10px; height:320px;
          overflow-y:auto; padding:8px 10px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-         font-size:.78rem; line-height:1.55; }
-  .log .line { display:flex; gap:10px; white-space:nowrap; }
+         font-size:.78rem; line-height:1.6; }
+  .log .line { display:flex; gap:8px; white-space:nowrap; align-items:baseline; }
   .log .lt { color:var(--muted); flex:0 0 auto; }
-  .log .lm { font-weight:600; }
-  .log .line.on  .lm { color:#f59e0b; }
-  .log .line.off .lm { color:var(--muted); font-weight:400; }
+  .log .src { flex:0 0 auto; font-weight:700; font-size:.66rem; padding:1px 6px; border-radius:6px;
+              background:#334155; color:#cbd5e1; letter-spacing:.03em; }
+  .log .src.s0 { background:rgba(148,163,184,.18); color:#94a3b8; }
+  .log .src.s1, .log .src.s2 { background:rgba(59,130,246,.2); color:#60a5fa; }
+  .log .src.s3 { background:rgba(168,85,247,.2); color:#c084fc; }
+  .log .src.s4 { background:rgba(245,158,11,.2); color:#fbbf24; }
+  .log .src.s5 { background:rgba(239,68,68,.2); color:#f87171; }
+  .log .lm { font-weight:500; overflow:hidden; text-overflow:ellipsis; }
+  .log .line.alert .lm { color:#f59e0b; font-weight:700; }
   .log .empty { color:var(--muted); font-style:italic; }
 </style>
 </head>
@@ -70,25 +81,78 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
     <h1>⚡ ESP32 Relay Control</h1>
     <div class="wifi" id="wifi">connecting…</div>
   </header>
+
+  <!-- Relays (built dynamically from /api/status) -->
   <div class="grid" id="grid"></div>
 
-  <div class="section" id="motionSection" style="display:none">
+  <!-- Laser emitter + sensors + notifications -->
+  <div class="grid" id="devGrid">
+    <div class="card" id="laserCard" style="display:none">
+      <h2>🔆 Laser <span class="badge off" id="laserBadge">OFF</span></h2>
+      <div class="row">
+        <button class="btn on"  onclick="laserControl('on')">Turn ON</button>
+        <button class="btn off" onclick="laserControl('off')">Turn OFF</button>
+      </div>
+      <label>Mode</label>
+      <div class="modepill">
+        <button class="btn ghost" id="laserAuto"   onclick="laserMode('auto')">Auto (cycle)</button>
+        <button class="btn ghost" id="laserManual" onclick="laserMode('manual')">Manual (hold)</button>
+      </div>
+      <div class="settings">
+        <div class="field">
+          <div><label>ON duration (s)</label><input type="number" min="1" step="1" id="laserOn"></div>
+          <div><label>OFF duration (s)</label><input type="number" min="1" step="1" id="laserOff"></div>
+        </div>
+        <button class="btn save" onclick="saveLaserSettings()">Save settings</button>
+        <div class="meta" id="laserMeta">—</div>
+      </div>
+    </div>
+
+    <div class="card" id="motionCard" style="display:none">
+      <h2>🚶 Motion Sensor <span class="badge clear" id="motionBadge">—</span></h2>
+      <div class="mstats"><span>Detections: <b id="motionCount">0</b></span></div>
+      <div class="settings">
+        <label>Detection delay (ms) — min gap between detections (0 = most responsive)</label>
+        <div class="field">
+          <div><input type="number" min="0" step="10" id="motionDelay"></div>
+          <button class="btn mini" onclick="saveMotionDelay()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="receiverCard" style="display:none">
+      <h2>🎯 Laser Beam <span class="badge clear" id="receiverBadge">—</span></h2>
+      <div class="mstats"><span>Beam breaks: <b id="receiverCount">0</b></span></div>
+      <div class="settings">
+        <label>Detection delay (ms) — min gap between breaks (0 = most responsive)</label>
+        <div class="field">
+          <div><input type="number" min="0" step="10" id="receiverDelay"></div>
+          <button class="btn mini" onclick="saveReceiverDelay()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="barkCard" style="display:none">
+      <h2>🔔 Notifications</h2>
+      <div class="meta" style="margin-top:0">Tap a source to toggle its Bark push.</div>
+      <div class="toggles">
+        <button class="btn ghost" id="bk_relay1" onclick="toggleBark('relay1')">Relay 1</button>
+        <button class="btn ghost" id="bk_relay2" onclick="toggleBark('relay2')">Relay 2</button>
+        <button class="btn ghost" id="bk_motion" onclick="toggleBark('motion')">Motion</button>
+        <button class="btn ghost" id="bk_laser"  onclick="toggleBark('laser')">Laser beam</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Unified "General Info" event log -->
+  <div class="section">
     <div class="card">
-      <h2>🚶 Motion Sensor
-        <span class="badge clear" id="motionBadge">—</span>
-      </h2>
-      <div class="mstats">
-        <span>Last trigger: <b id="motionLast">—</b></span>
-        <span>Detections: <b id="motionCount">0</b></span>
-      </div>
-      <div class="row" id="barkRow" style="display:none; margin:0 0 14px">
-        <button class="btn ghost" id="barkToggle" onclick="toggleBark()">🔔 Bark notifications</button>
-      </div>
       <div class="loghead">
-        <label style="margin:0">History log (newest at top, up to 999)</label>
-        <button class="btn" onclick="clearMotionLog()">Clear log</button>
+        <h2 style="margin:0">📋 General Info</h2>
+        <button class="btn" onclick="clearLog()">Clear log</button>
       </div>
-      <div class="log" id="motionLog"><div class="empty">Waiting for sensor events…</div></div>
+      <div class="meta" style="margin:0 0 8px">Relay, laser, motion &amp; beam events — newest first.</div>
+      <div class="log" id="log"><div class="empty">Waiting for events…</div></div>
     </div>
   </div>
 
@@ -118,6 +182,14 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
   <footer>Auto-refreshing every 2 s · REST API at <code>/api/status</code> · <span id="ver"></span></footer>
 
 <script>
+let editing = null; // pause refresh of inputs while user types
+
+async function api(path) {
+  const res = await fetch(path, { method:'POST' });
+  return res.json();
+}
+
+// ---- relays ----
 const cardTpl = (r) => `
   <div class="card" data-id="${r.id}">
     <h2>Relay ${r.id}
@@ -134,26 +206,13 @@ const cardTpl = (r) => `
     </div>
     <div class="settings">
       <div class="field">
-        <div>
-          <label>ON duration (s)</label>
-          <input type="number" min="1" step="1" id="on-${r.id}" value="${r.onDuration}">
-        </div>
-        <div>
-          <label>OFF duration (s)</label>
-          <input type="number" min="1" step="1" id="off-${r.id}" value="${r.offDuration}">
-        </div>
+        <div><label>ON duration (s)</label><input type="number" min="1" step="1" id="on-${r.id}" value="${r.onDuration}"></div>
+        <div><label>OFF duration (s)</label><input type="number" min="1" step="1" id="off-${r.id}" value="${r.offDuration}"></div>
       </div>
       <button class="btn save" onclick="saveSettings(${r.id})">Save settings</button>
       <div class="meta" data-meta>${r.mode==='auto' ? 'Next switch in '+r.remaining+'s' : 'Holding ' + r.state}</div>
     </div>
   </div>`;
-
-let editing = null; // pause refresh of inputs while user types
-
-async function api(path) {
-  const res = await fetch(path, { method:'POST' });
-  return res.json();
-}
 
 async function control(id, action) { render(await api(`/api/control?relay=${id}&action=${action}`)); }
 async function setMode(id, mode)   { render(await api(`/api/settings?relay=${id}&mode=${mode}`)); }
@@ -162,10 +221,80 @@ async function saveSettings(id) {
   const off = document.getElementById(`off-${id}`).value;
   render(await api(`/api/settings?relay=${id}&onDuration=${on}&offDuration=${off}`));
 }
-async function toggleBark() {
-  const bt = document.getElementById('barkToggle');
-  const next = bt.classList.contains('active') ? 0 : 1; // flip current state
-  render(await api(`/api/motion/bark?enabled=${next}`));
+
+function updateRelays(relays) {
+  const grid = document.getElementById('grid');
+  if (grid.children.length !== relays.length) grid.innerHTML = relays.map(cardTpl).join('');
+  relays.forEach(r => {
+    const card = grid.querySelector(`.card[data-id="${r.id}"]`);
+    if (!card) return;
+    const badge = card.querySelector('[data-badge]');
+    badge.textContent = r.state.toUpperCase();
+    badge.className = `badge ${r.state}`;
+    card.querySelector('[data-meta]').textContent =
+      r.mode==='auto' ? `Next switch in ${r.remaining}s` : `Holding ${r.state}`;
+    card.querySelectorAll('.modepill .btn').forEach((b,i) =>
+      b.classList.toggle('active', (i===0) === (r.mode==='auto')));
+    if (editing !== `on-${r.id}`)  card.querySelector(`#on-${r.id}`).value  = r.onDuration;
+    if (editing !== `off-${r.id}`) card.querySelector(`#off-${r.id}`).value = r.offDuration;
+  });
+}
+
+// ---- laser emitter ----
+async function laserControl(a) { render(await api(`/api/laser/control?action=${a}`)); }
+async function laserMode(m)    { render(await api(`/api/laser/settings?mode=${m}`)); }
+async function saveLaserSettings() {
+  const on  = document.getElementById('laserOn').value;
+  const off = document.getElementById('laserOff').value;
+  render(await api(`/api/laser/settings?onDuration=${on}&offDuration=${off}`));
+}
+
+function updateLaser(l) {
+  const card = document.getElementById('laserCard');
+  if (!l || !l.enabled) { if (card) card.style.display = 'none'; return; }
+  card.style.display = '';
+  const badge = document.getElementById('laserBadge');
+  badge.textContent = l.state.toUpperCase();
+  badge.className = `badge ${l.state}`;
+  document.getElementById('laserAuto').classList.toggle('active', l.mode==='auto');
+  document.getElementById('laserManual').classList.toggle('active', l.mode==='manual');
+  if (editing !== 'laserOn')  document.getElementById('laserOn').value  = l.onDuration;
+  if (editing !== 'laserOff') document.getElementById('laserOff').value = l.offDuration;
+  document.getElementById('laserMeta').textContent =
+    l.mode==='auto' ? `Next switch in ${l.remaining}s` : `Holding ${l.state}`;
+}
+
+// ---- motion / beam sensors (same status shape) ----
+async function saveMotionDelay()   { render(await api(`/api/motion/delay?ms=${document.getElementById('motionDelay').value||0}`)); }
+async function saveReceiverDelay() { render(await api(`/api/receiver/delay?ms=${document.getElementById('receiverDelay').value||0}`)); }
+
+function updateSensor(prefix, s, onLabel, offLabel, onCls) {
+  const card = document.getElementById(prefix + 'Card');
+  if (!s || !s.enabled) { if (card) card.style.display = 'none'; return; }
+  card.style.display = '';
+  const badge = document.getElementById(prefix + 'Badge');
+  badge.textContent = s.active ? onLabel : offLabel;
+  badge.className = 'badge ' + (s.active ? onCls : 'clear');
+  document.getElementById(prefix + 'Count').textContent = s.count;
+  const di = document.getElementById(prefix + 'Delay');
+  if (di && editing !== prefix + 'Delay') di.value = s.delay;
+}
+
+// ---- bark notifications (4 per-source toggles) ----
+async function toggleBark(src) {
+  const b = document.getElementById('bk_' + src);
+  const next = b.classList.contains('active') ? 0 : 1;
+  render(await api(`/api/bark?source=${src}&enabled=${next}`));
+}
+
+function updateBark(b) {
+  const card = document.getElementById('barkCard');
+  if (!b || !b.available) { if (card) card.style.display = 'none'; return; }
+  card.style.display = '';
+  [['relay1',b.relay1],['relay2',b.relay2],['motion',b.motion],['laser',b.laser]].forEach(([k,v]) => {
+    const btn = document.getElementById('bk_' + k);
+    btn.classList.toggle('active', !!v);
+  });
 }
 
 async function saveWifi() {
@@ -176,7 +305,7 @@ async function saveWifi() {
   msg.textContent = 'Saving… device will reboot and reconnect.';
   try {
     await fetch('/api/wifi', { method:'POST', body:new URLSearchParams({ ssid, pass }) });
-    msg.textContent = 'Saved — rebooting. Reopen http://relay.local/ shortly.';
+    msg.textContent = 'Saved — rebooting. Reopen the device URL shortly.';
   } catch(e) { msg.textContent = 'Saved — device is rebooting.'; }
 }
 
@@ -197,46 +326,12 @@ function render(data) {
   if (fw && data.device) fw.textContent = `Firmware ${data.device.version} · uptime ${data.device.uptime}s · ${data.device.heap} B free`;
   const ver = document.getElementById('ver');
   if (ver && data.device) ver.textContent = 'v' + data.device.version;
-  const grid = document.getElementById('grid');
-  if (grid.children.length !== data.relays.length) {
-    grid.innerHTML = data.relays.map(cardTpl).join('');
-    return;
-  }
-  data.relays.forEach(r => {
-    const card = grid.querySelector(`.card[data-id="${r.id}"]`);
-    const badge = card.querySelector('[data-badge]');
-    badge.textContent = r.state.toUpperCase();
-    badge.className = `badge ${r.state}`;
-    card.querySelector('[data-meta]').textContent =
-      r.mode==='auto' ? `Next switch in ${r.remaining}s` : `Holding ${r.state}`;
-    card.querySelectorAll('.modepill .btn').forEach((b,i) =>
-      b.classList.toggle('active', (i===0) === (r.mode==='auto')));
-    if (editing !== `on-${r.id}`)  card.querySelector(`#on-${r.id}`).value  = r.onDuration;
-    if (editing !== `off-${r.id}`) card.querySelector(`#off-${r.id}`).value = r.offDuration;
-  });
-  updateMotion(data.motion);
-}
 
-function updateMotion(m) {
-  const section = document.getElementById('motionSection');
-  if (!m || !m.enabled) { if (section) section.style.display = 'none'; return; }
-  section.style.display = '';
-  const badge = document.getElementById('motionBadge');
-  badge.textContent = m.active ? 'MOTION' : 'CLEAR';
-  badge.className = 'badge ' + (m.active ? 'motion' : 'clear');
-  document.getElementById('motionCount').textContent = m.count;
-  document.getElementById('motionLast').textContent =
-    m.lastSeq === 0 ? 'none yet'
-                    : (m.lastTs || `+${Math.floor(m.lastUp/1000)}s uptime`);
-  const barkRow = document.getElementById('barkRow');
-  if (m.barkAvailable) {
-    barkRow.style.display = '';
-    const bt = document.getElementById('barkToggle');
-    bt.classList.toggle('active', !!m.barkEnabled);
-    bt.textContent = m.barkEnabled ? '🔔 Bark: ON' : '🔕 Bark: OFF';
-  } else {
-    barkRow.style.display = 'none';
-  }
+  updateRelays(data.relays);
+  updateLaser(data.laser);
+  updateSensor('motion', data.motion, 'MOTION', 'CLEAR', 'motion');
+  updateSensor('receiver', data.receiver, 'BROKEN', 'INTACT', 'broken');
+  updateBark(data.bark);
 }
 
 document.addEventListener('focusin',  e => { if (e.target.tagName==='INPUT') editing = e.target.id; });
@@ -248,52 +343,52 @@ async function refresh() {
 refresh();
 setInterval(refresh, 2000);
 
-// ---- Motion history log (incremental: only fetch events newer than we hold) ----
-let motionSeq = 0;        // highest event seq the page has rendered
-let motionPrimed = false; // false until the first batch arrives (forces scroll)
+// ---- unified event log (incremental: only fetch events newer than we hold) ----
+let logSeq = 0;        // highest event seq the page has rendered
+let logPrimed = false; // false until the first batch arrives (forces scroll)
+const SRC_TAG = ['SYS', 'R1', 'R2', 'LAS', 'PIR', 'BEAM'];
 
 function logLine(e) {
   const div = document.createElement('div');
-  div.className = 'line ' + (e.m ? 'on' : 'off');
-  const ts = e.ts || `+${Math.floor(e.up/1000)}s uptime`;
+  div.className = 'line' + (e.a ? ' alert' : '');
+  const ts = e.ts || `+${Math.floor(e.up/1000)}s`;
   const tt = document.createElement('span'); tt.className = 'lt'; tt.textContent = ts;
-  const mm = document.createElement('span'); mm.className = 'lm';
-  mm.textContent = e.m ? 'Motion detected' : 'No motion';
-  div.append(tt, mm);
+  const sp = document.createElement('span'); sp.className = 'src s' + e.src; sp.textContent = SRC_TAG[e.src] || ('#'+e.src);
+  const mm = document.createElement('span'); mm.className = 'lm'; mm.textContent = e.msg;
+  div.append(tt, sp, mm);
   return div;
 }
 
 async function refreshLog() {
   let data;
-  try { data = await (await fetch(`/api/motion/log?since=${motionSeq}`)).json(); }
+  try { data = await (await fetch(`/api/log?since=${logSeq}`)).json(); }
   catch(e) { return; }
-  // Device rebooted or log was cleared elsewhere → its latest seq fell behind us.
-  if (data.latest < motionSeq) {
-    motionSeq = 0; motionPrimed = false;
-    document.getElementById('motionLog').innerHTML = '';
+  // Device rebooted or the log was cleared elsewhere → its latest seq fell behind us.
+  if (data.latest < logSeq) {
+    logSeq = 0; logPrimed = false;
+    document.getElementById('log').innerHTML = '';
     return refreshLog();
   }
   const events = data.events || [];
   if (!events.length) return;
-  const box = document.getElementById('motionLog');
+  const box = document.getElementById('log');
   const empty = box.querySelector('.empty');
   if (empty) empty.remove();
   const atTop = box.scrollTop < 40;
-  // Events arrive oldest→newest; prepend each into the batch so it ends up
-  // newest-first, then drop the whole batch above the rows already shown.
+  // Events arrive oldest→newest; prepend each so the batch ends up newest-first,
+  // then drop the whole batch above the rows already shown.
   const frag = document.createDocumentFragment();
-  events.forEach(e => { if (e.seq > motionSeq) motionSeq = e.seq; frag.prepend(logLine(e)); });
+  events.forEach(e => { if (e.seq > logSeq) logSeq = e.seq; frag.prepend(logLine(e)); });
   box.prepend(frag);
   while (box.children.length > 999) box.removeChild(box.lastChild); // hard cap (oldest at bottom)
-  if (atTop || !motionPrimed) box.scrollTop = 0;
-  motionPrimed = true;
+  if (atTop || !logPrimed) box.scrollTop = 0;
+  logPrimed = true;
 }
 
-async function clearMotionLog() {
-  try { await fetch('/api/motion/clear', { method:'POST' }); } catch(e) {}
-  motionSeq = 0; motionPrimed = false;
-  document.getElementById('motionLog').innerHTML =
-    '<div class="empty">Log cleared.</div>';
+async function clearLog() {
+  try { await fetch('/api/log/clear', { method:'POST' }); } catch(e) {}
+  logSeq = 0; logPrimed = false;
+  document.getElementById('log').innerHTML = '<div class="empty">Log cleared.</div>';
 }
 
 refreshLog();

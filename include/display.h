@@ -14,6 +14,8 @@ struct DisplayInfo {
   unsigned long remaining[2]; // seconds to next auto switch (0 in manual)
   bool motionEnabled;         // PIR sensor compiled in
   bool motionActive;          // PIR currently detecting motion
+  bool laserEnabled;          // laser-beam receiver compiled in
+  bool laserActive;           // beam currently broken (not received)
   const char* version;
   String hostname;            // mDNS name for the footer (e.g. "relay-3a9c")
 };

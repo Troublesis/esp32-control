@@ -98,30 +98,31 @@ static void drawRelayRow(int y, int idx, const DisplayInfo& info, bool showCount
   }
 }
 
-// Two-line motion indicator down the right side of the blue area. Mirrors the
+// One labelled detection pill on the right side of the blue area. Mirrors the
 // relay "pill" invert: outlined with the label showing when idle, fully filled
-// with the label knocked out to black when motion is live.
+// with the label knocked out to black when the sensor is in its alert state.
 //   NOTE: this lower region of the two-colour panel is physically BLUE (only the
 //   top 16 px band is yellow), so the box renders blue regardless of draw colour.
-//   "Motion Detected" is trimmed to "Motion" / "Detect" to fit the box width.
-static void drawMotionBox(const DisplayInfo& info) {
-  const int x = 84, y = 20, w = 44, h = 32;
-  bool on = info.motionActive;
-
-  if (on) oled.fillRoundRect(x, y, w, h, 4, SSD1306_WHITE);
-  else    oled.drawRoundRect(x, y, w, h, 4, SSD1306_WHITE);
-  oled.setTextColor(on ? SSD1306_BLACK : SSD1306_WHITE);
+static void drawSensorPill(int x, int y, int w, int h, const char* label, bool active) {
+  if (active) oled.fillRoundRect(x, y, w, h, 3, SSD1306_WHITE);
+  else        oled.drawRoundRect(x, y, w, h, 3, SSD1306_WHITE);
+  oled.setTextColor(active ? SSD1306_BLACK : SSD1306_WHITE);
 
   oled.setTextSize(1);
-  const char* lines[2] = { "Motion", "Detect" };
-  const int   ly[2]    = { y + 7, y + 18 };
-  for (int i = 0; i < 2; i++) {
-    int16_t bx, by; uint16_t bw, bh;
-    oled.getTextBounds(lines[i], 0, 0, &bx, &by, &bw, &bh);
-    oled.setCursor(x + (w - (int)bw) / 2, ly[i]);
-    oled.print(lines[i]);
-  }
+  int16_t bx, by; uint16_t bw, bh;
+  oled.getTextBounds(label, 0, 0, &bx, &by, &bw, &bh);
+  oled.setCursor(x + (w - (int)bw) / 2, y + (h - 8) / 2 + 1);
+  oled.print(label);
   oled.setTextColor(SSD1306_WHITE); // restore for later draws
+}
+
+// Stacked detection indicators ("Motion" + "Laser") down the right side. Each is
+// shown only when its sensor is compiled in, taking the next free slot.
+static void drawSensorColumn(const DisplayInfo& info) {
+  const int x = 84, w = 44, h = 15;
+  int y = 20;
+  if (info.motionEnabled) { drawSensorPill(x, y, w, h, "Motion", info.motionActive); y += 18; }
+  if (info.laserEnabled)  { drawSensorPill(x, y, w, h, "Laser",  info.laserActive);  y += 18; }
 }
 
 void displayRender(const DisplayInfo& info) {
@@ -165,11 +166,11 @@ void displayRender(const DisplayInfo& info) {
 
   oled.drawFastHLine(0, 16, OLED_WIDTH, SSD1306_WHITE);
 
-  // ---- Blue area: relays (left) + motion box (right) ----
-  bool showMotion = info.motionEnabled;
-  drawRelayRow(22, 0, info, !showMotion); // countdown yields to the motion box
-  drawRelayRow(40, 1, info, !showMotion);
-  if (showMotion) drawMotionBox(info);
+  // ---- Blue area: relays (left) + Motion/Laser indicators (right) ----
+  bool showSensors = info.motionEnabled || info.laserEnabled;
+  drawRelayRow(22, 0, info, !showSensors); // countdown yields to the sensor pills
+  drawRelayRow(40, 1, info, !showSensors);
+  if (showSensors) drawSensorColumn(info);
 
   // ---- Footer hint ----
   oled.setTextColor(SSD1306_WHITE);

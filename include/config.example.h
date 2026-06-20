@@ -50,7 +50,7 @@
 #define OTA_PASSWORD ""
 
 // Reported by /api/status and shown in the UI footer.
-#define FW_VERSION "1.2.0"
+#define FW_VERSION "1.3.0"
 
 // ----------------------------------------------------------------------------
 // Relay wiring (see WIRING GUIDE in main.cpp)
@@ -103,35 +103,92 @@
 //   PIR GND -> ESP32 GND
 //   PIR S   -> ESP32 GPIO 4  (PIR_PIN — any input-capable GPIO)
 // The signal pin goes HIGH while motion is present and returns LOW after the
-// sensor's own hold time. The WebUI shows the live state plus a timestamped
-// history log. Set PIR_ENABLED to 0 if no sensor is attached.
+// sensor's own hold time. The WebUI shows live state plus a unified event log.
+// Set PIR_ENABLED to 0 if no sensor is attached.
 #define PIR_ENABLED 1
 #define PIR_PIN     4
 // How often the input is sampled, in ms (PIR output changes slowly).
 #define PIR_POLL_MS 50
-// Maximum number of history events kept in RAM (oldest is dropped past this).
-#define PIR_LOG_MAX 999
+// Default "detection delay" (ms): minimum gap between two logged detections.
+// 0 = most responsive (log every edge). Editable live from the WebUI.
+#define PIR_DEFAULT_DELAY_MS 0
 
 // ----------------------------------------------------------------------------
-// Bark notification — sent once each time the PIR sensor detects motion
+// Laser emitter — controllable laser diode output (3 pins: VCC / GND / Signal)
+// ----------------------------------------------------------------------------
+//   Laser VCC -> ESP32 3V3 (or 5V per module)
+//   Laser GND -> ESP32 GND
+//   Laser S   -> ESP32 GPIO 25  (LASER_PIN — any output-capable GPIO)
+// Behaves like a relay: AUTO cycles ON/OFF on a timer, MANUAL holds the last
+// commanded state. Most laser modules are ACTIVE HIGH (signal HIGH = beam on).
+#define LASER_ENABLED   1
+#define LASER_PIN       25
+#define LASER_ON_STATE  HIGH
+#define LASER_OFF_STATE LOW
+#define LASER_DEFAULT_ON_MS  1000   // Laser ON for 1 s in Auto mode
+#define LASER_DEFAULT_OFF_MS 1000   // Laser OFF for 1 s in Auto mode
+// Default mode on first boot: true = Auto (cycle), false = Manual (hold off).
+#define LASER_DEFAULT_AUTO false
+
+// ----------------------------------------------------------------------------
+// Laser receiver — beam-break sensor (3 pins: VCC / GND / Signal)
+// ----------------------------------------------------------------------------
+//   Receiver VCC -> ESP32 3V3
+//   Receiver GND -> ESP32 GND
+//   Receiver S   -> ESP32 GPIO 33  (RECEIVER_PIN — input-capable GPIO)
+// Point the laser emitter at the receiver. The signal reflects whether the beam
+// is landing on the sensor; crossing the beam ("not received") is logged and
+// can fire a Bark push. Set RECEIVER_ENABLED to 0 if no receiver is attached.
+#define RECEIVER_ENABLED 1
+#define RECEIVER_PIN     33
+// Signal level while the beam IS being received. Most modules read HIGH when the
+// beam hits the sensor and drop LOW when interrupted — set 0 if yours is wired
+// the other way around. The "alert" (logged/notified) state is "not received".
+#define RECEIVER_BEAM_HIGH 1
+#define RECEIVER_POLL_MS   20
+// Default "detection delay" (ms): minimum gap between two logged break events.
+#define RECEIVER_DEFAULT_DELAY_MS 0
+
+// ----------------------------------------------------------------------------
+// Unified event log ("General Info") — bounded in-RAM ring buffer
+// ----------------------------------------------------------------------------
+// Holds relay, laser, motion and beam events (newest wins, oldest dropped past
+// this cap). Each entry costs ~40 bytes of RAM, so keep it sane.
+#define EVENT_LOG_MAX 500
+
+// ----------------------------------------------------------------------------
+// Bark push notifications — per-source toggles (relay 1/2, motion, laser beam)
 // ----------------------------------------------------------------------------
 // Leave disabled until your local config.h contains your Bark server details.
+// Each source has an independent on/off toggle in the WebUI, persisted in flash;
+// the defaults below seed it on first boot.
 #define BARK_ENABLED     0
 #define BARK_PUSH_URL    "https://your-bark-server.example/push"
 #define BARK_DEVICE_KEY  "YOUR_BARK_DEVICE_KEY"
-#define BARK_TITLE       "Human Motion Detected"
-#define BARK_BODY        "The ESP32 human sensor detected movement near the relay controller."
 #define BARK_BADGE       1
 #define BARK_SOUND       "door-close"
 #define BARK_ICON        ""
 #define BARK_GROUP       "esp32"
+#define BARK_TIMEOUT_MS  3000
 // Fallback only: the push normally opens the device's live LAN IP (http://<ip>/),
 // which resolves on phones; this is used just if WiFi is down when sending.
 #define BARK_OPEN_URL    "http://relay.local/"
-#define BARK_TIMEOUT_MS  3000
+
+// Per-source titles + first-boot enable defaults (1 = notify, 0 = silent).
+#define BARK_MOTION_TITLE   "Human Motion Detected"
+#define BARK_MOTION_BODY    "The ESP32 PIR sensor detected movement."
+#define BARK_MOTION_DEFAULT 1
+
+#define BARK_BEAM_TITLE     "Laser Beam Broken"
+#define BARK_BEAM_BODY      "The ESP32 laser tripwire was interrupted."
+#define BARK_BEAM_DEFAULT   0
+
+#define BARK_RELAY_TITLE    "Relay Switched"   // body is built per relay/state
+#define BARK_RELAY1_DEFAULT 0
+#define BARK_RELAY2_DEFAULT 0
 
 // ----------------------------------------------------------------------------
-// NTP time — gives the motion log real timestamps (needs WiFi/internet)
+// NTP time — gives the event log real timestamps (needs WiFi/internet)
 // ----------------------------------------------------------------------------
 // Without a sync the log falls back to showing the device uptime. TZ_INFO is a
 // POSIX timezone string and handles daylight-saving transitions automatically.
