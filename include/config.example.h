@@ -144,10 +144,11 @@
 // can fire a Bark push. Set RECEIVER_ENABLED to 0 if no receiver is attached.
 #define RECEIVER_ENABLED 1
 #define RECEIVER_PIN     33
-// Signal level while the beam IS being received. Most modules read HIGH when the
-// beam hits the sensor and drop LOW when interrupted — set 0 if yours is wired
-// the other way around. The "alert" (logged/notified) state is "not received".
-#define RECEIVER_BEAM_HIGH 1
+// Signal level while the beam IS being received. Some modules read LOW when the
+// beam hits the sensor and go HIGH when interrupted (the default here); set 1 if
+// yours reads HIGH while receiving. The "alert" (logged/notified) state is "not
+// received".
+#define RECEIVER_BEAM_HIGH 0
 #define RECEIVER_POLL_MS   20
 // Default "detection delay" (ms): minimum gap between two logged break events.
 #define RECEIVER_DEFAULT_DELAY_MS 0

@@ -167,7 +167,11 @@ static void drawSensorColumn(const DisplayInfo& info) {
   const int x = 84, w = 44, h = 15;
   int y = 20;
   if (info.motionEnabled) { drawSensorPill(x, y, w, h, "Motion", info.motionActive); y += 18; }
-  if (info.laserEnabled)  { drawSensorPill(x, y, w, h, "Laser",  info.laserActive);  y += 18; }
+  // Laser pill is intentionally drawn inverted from the others: it shows FILLED
+  // while the beam is intact and OUTLINED when the beam is broken. (info.laserActive
+  // is "beam broken", so we negate it here.) This is a display-only flip for the
+  // OLED indicator and does not affect the event log / Bark alert direction.
+  if (info.laserEnabled)  { drawSensorPill(x, y, w, h, "Laser",  !info.laserActive); y += 18; }
 }
 
 void displayRender(const DisplayInfo& info) {
